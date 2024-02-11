@@ -1,0 +1,4 @@
+/activelist - список активных пользователей
+/w - личное сообщение (/w username)
+/changenick - смена ника (/changenick username)
+/exit - выход

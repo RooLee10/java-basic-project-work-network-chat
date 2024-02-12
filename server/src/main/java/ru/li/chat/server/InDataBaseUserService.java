@@ -54,7 +54,7 @@ public class InDataBaseUserService implements UserService {
 
     private List<User> getUsersFromDatabase() {
         List<User> result = new ArrayList<>();
-        String sqlQuery = "SELECT u.user_id, u.user_name, u.login, u.password, r.role_name FROM usertorole utr JOIN users u ON utr.user_id = u.user_id JOIN roles r ON utr.role_id = r.role_id";
+        String sqlQuery = "SELECT u.user_id, u.user_name, u.login, u.password, r.role_name FROM UserToRole utr JOIN Users u ON utr.user_id = u.user_id JOIN Roles r ON utr.role_id = r.role_id";
         logger.debug("getUsersFromDatabase - подключение к базе данных");
         try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
             logger.debug("getUsersFromDatabase - получение соединение");
@@ -92,7 +92,7 @@ public class InDataBaseUserService implements UserService {
                         Map<String, String> userData = idToUsersData.get(userId);
                         User user = new User(userId, userData.get("userName"), userData.get("login"), userData.get("password"), idToRole.getOrDefault(userId, new HashSet<>()));
                         this.users.add(user);
-                        logger.debug("getUsersFromDatabase = создался пользователь: " + user);
+                        logger.debug("getUsersFromDatabase - создался пользователь: " + user);
                     }
                 } catch (SQLException e) {
                     logger.error(e.getMessage());
@@ -174,7 +174,7 @@ public class InDataBaseUserService implements UserService {
 
     private int getRoleIdByRoleName(Connection connection, String roleName) throws SQLException {
         // Получения role_id из таблицы Roles
-        String sqlQuery = "SELECT r.role_id FROM Roles r WHERE r.role_name = (?)";
+        String sqlQuery = "SELECT r.role_id FROM Roles r WHERE r.role_name = ?";
         logger.debug("getRoleIdByRolename - получение preparedStatement по запросу: " + sqlQuery);
         try (PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
             preparedStatement.setString(1, roleName);
@@ -211,7 +211,7 @@ public class InDataBaseUserService implements UserService {
 
     private int getUserIdByLogin(Connection connection, String login) throws SQLException {
         // Получения user_id из таблицы Users
-        String sqlQuery = "SELECT u.user_id FROM Users u WHERE u.login = (?)";
+        String sqlQuery = "SELECT u.user_id FROM Users u WHERE u.login = ?";
         logger.debug("getUserIdByLogin - получение preparedStatement по запросу: " + sqlQuery);
         try (PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
             preparedStatement.setString(1, login);

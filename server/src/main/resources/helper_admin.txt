@@ -1,4 +1,4 @@
-/roleslist - список всех ролей
+/roleslist - список ролей для установки/удаления пользователям
 /addrole - добавить роль пользователю (/addrole username rolename)
 /removerole - удалить роль у пользователя (/removerole username rolename)
 /ban - бан пользователя (/ban username -[1-9] время бана, указывается в часах), (/ban username -* бан навсегда)

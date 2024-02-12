@@ -20,6 +20,10 @@ public class ClientHandler {
         return username;
     }
 
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
     public ClientHandler(Socket socket, Server server) {
         this.logger = LogManager.getLogger(ClientHandler.class.getName());
 
@@ -40,17 +44,21 @@ public class ClientHandler {
         }).start();
     }
 
+    @Override
+    public String toString() {
+        return "Клиент " + socket.getInetAddress() + ":" + socket.getPort() + " (" + username + ")";
+    }
+
     private void startLogic() throws IOException {
-        sendMessage("[СЕРВЕР] " + server.getGreetings());
         sendMessage("[СЕРВЕР] " + server.getHelperStart());
         while (true) {
             String message = in.readUTF();
-            logger.info("Получена команда: " + message);
+            logger.info(this + " -> " + message);
             boolean successfully = false;
             if (message.startsWith("/register ")) {
-                successfully = server.tryToRegister(this);
+                successfully = server.tryToRegister(message, this);
             } else if (message.startsWith("/auth ")) {
-                successfully = server.tryToAuthenticate(this);
+                successfully = server.tryToAuthenticate(message, this);
             } else {
                 logger.warn("Неизвестная команда: " + message);
                 sendMessage("[СЕРВЕР] неизвестная команда");
@@ -65,17 +73,38 @@ public class ClientHandler {
         while (true) {
             String message = in.readUTF();
             if (message.startsWith("/")) {
-                logger.info("Получена команда: " + message);
+                logger.info(this + " -> " + message);
+                if (message.equals("/?")) {
+                    sendMessage(server.getCommandList(this));
+                    continue;
+                }
+                if (message.equals("/activelist")) {
+                    sendMessage(server.getActiveUsers());
+                    continue;
+                }
+                if (message.startsWith("/w ")) {
+                    server.sendPrivateMessage(message, this);
+                    continue;
+                }
+                if (message.startsWith("/changenick ")) {
+                    server.changeUsername(message, this);
+                    continue;
+                }
                 if (message.equals("/exit")) {
                     sendMessage(message);
                     break;
                 }
                 if (message.equals("/shutdown")) {
+                    if (!server.isUserAdmin(username)) {
+                        logger.warn(this + " превышение полномочий");
+                        sendMessage("[СЕРВЕР] неизвестная команда");
+                        continue;
+                    }
                     server.shutdown();
                     break;
                 }
             }
-            server.sendBroadcastMessage(message);
+            server.sendBroadcastMessage(username + ": " + message);
         }
     }
 

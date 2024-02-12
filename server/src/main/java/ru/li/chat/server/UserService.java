@@ -8,4 +8,5 @@ public interface UserService {
     void createNewUser(String username, String login, String password, UserRole role);
     void addRoleToUser(String username, UserRole role);
     void removeRoleFromUser(String username, UserRole role);
+    boolean changeUsername(String username, String newUsername);
 }

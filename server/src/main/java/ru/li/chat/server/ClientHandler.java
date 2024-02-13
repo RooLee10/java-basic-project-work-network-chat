@@ -90,6 +90,14 @@ public class ClientHandler {
                     server.changeUsername(message, this);
                     continue;
                 }
+                if (message.equals("/roleslist")) {
+                    sendMessage("[СЕРВЕР] " + server.getRolesList());
+                    continue;
+                }
+                if (message.startsWith("/addrole ")) {
+                    server.addRoleToUser(message, this);
+                    continue;
+                }
                 if (message.equals("/exit")) {
                     sendMessage(message);
                     break;

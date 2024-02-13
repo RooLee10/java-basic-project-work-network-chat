@@ -1,2 +1,3 @@
+
 /register - регистрация (/register username login password)
 /auth - аутентификация (/auth login password)

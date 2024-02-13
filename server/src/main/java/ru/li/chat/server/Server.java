@@ -6,6 +6,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -123,6 +124,10 @@ public class Server {
         return commandList;
     }
 
+    public String getRolesList() {
+        return Arrays.toString(UserRole.values());
+    }
+
     public String getActiveUsers() {
         StringBuilder sb = new StringBuilder();
         sb.append("В чате сейчас находятся:\n");
@@ -152,10 +157,21 @@ public class Server {
             sender.sendMessage("[СЕРВЕР] не найден пользователь: " + receiverUsername);
             return;
         }
+        if (sender == receiver) {
+            logger.warn(sender + " Попытка отправки сообщения самому себе: " + message);
+            sender.sendMessage("Вы пытаетесь отправить сообщение самому себе..");
+            return;
+        }
         String wispMessage = sender.getUsername() + "->" + receiver.getUsername() + ": " + elements[2];
         receiver.sendMessage(wispMessage);
         sender.sendMessage(wispMessage);
 
+    }
+
+    public synchronized void sendBroadcastMessage(String message) {
+        for (ClientHandler clientHandler : clients.values()) {
+            clientHandler.sendMessage(message);
+        }
     }
 
     public synchronized void changeUsername(String message, ClientHandler clientHandler) {
@@ -166,32 +182,71 @@ public class Server {
             return;
         }
         String newUsername = elements[1];
-        if (clientHandler.getUsername().equals(newUsername)) {
+        String oldUsername = clientHandler.getUsername();
+        if (oldUsername.equals(newUsername)) {
             clientHandler.sendMessage("Этот ник и так уже принадлежит Вам..");
             return;
         }
-        if (!userService.changeUsername(clientHandler.getUsername(), newUsername)) {
-            logger.error(clientHandler + " внутренняя ошибка логики работы приложения. Не найден пользователь: " + clientHandler.getUsername());
-            clientHandler.sendMessage("[СЕРВЕР] внутренняя ошибка логики работы приложения. Не найден пользователь: " + clientHandler.getUsername());
+        if (userService.isUsernameAlreadyExists(newUsername)) {
+            logger.warn(clientHandler + " ник " + newUsername + " уже занят");
+            clientHandler.sendMessage("[СЕРВЕР] ник " + newUsername + " уже занят");
             return;
         }
-        logger.info(clientHandler.getUsername() + " сменил ник на: " + newUsername);
-        sendBroadcastMessage("[СЕРВЕР] " + clientHandler.getUsername() + " сменил ник на: " + newUsername);
+        if (!userService.changeUsername(oldUsername, newUsername)) {
+            logger.error(clientHandler + " внутренняя ошибка логики работы приложения. Не найден пользователь: " + oldUsername);
+            clientHandler.sendMessage("[СЕРВЕР] внутренняя ошибка логики работы приложения. Обратитесь к администратору");
+            return;
+        }
+        logger.info(clientHandler + " сменил ник на: " + newUsername);
         clientHandler.setUsername(newUsername);
-        clientHandler.sendMessage("[СЕРВЕР] вы сменили ник на: " + clientHandler.getUsername());
+        clients.remove(oldUsername);
+        clients.put(newUsername, clientHandler);
+        sendBroadcastMessage("[СЕРВЕР] " + oldUsername + " сменил ник на: " + newUsername);
+    }
+
+    public synchronized void addRoleToUser(String message, ClientHandler clientHandler) {
+        String[] elements = message.split(" ");
+        if (elements.length != 3) {
+            logger.warn(clientHandler + " неверный формат команды: " + message);
+            clientHandler.sendMessage("[СЕРВЕР] неверный формат команды");
+            return;
+        }
+        String username = elements[1];
+        String roleName = elements[2];
+        if (!userService.isUsernameAlreadyExists(username)) {
+            logger.warn(clientHandler + " не найден пользователь для добавлении роли: " + username);
+            clientHandler.sendMessage("[CEРВЕР] не найден пользователь: " + username);
+            return;
+        }
+        UserRole role = getUserRoleByName(roleName);
+        if (role == null) {
+            logger.warn(clientHandler + " не найдена роль: " + roleName);
+            clientHandler.sendMessage("[СЕРВЕР] не найдена роль: " + roleName);
+            return;
+        }
+        userService.addRoleToUser(clientHandler.getUsername(), role);
+        logger.info(clientHandler + " добавил пользователю " + username + " + роль " + roleName);
+        clientHandler.sendMessage("[СЕРВЕР] пользователю " + username + " добавлена роль " + roleName);
+        if (clients.containsKey(username) && !clientHandler.getUsername().equals(username)) {
+            clients.get(username).sendMessage("[СЕРВЕР] " + clientHandler.getUsername() + " добавил вам роль " + roleName);
+        }
+    }
+
+    private static UserRole getUserRoleByName(String roleName) {
+        for (UserRole userRole : UserRole.values()) {
+            if (userRole.toString().equals(roleName)) {
+                return userRole;
+            }
+        }
+        return null;
     }
 
     public boolean isUserAdmin(String username) {
         return userService.isUserAdmin(username);
     }
+
     private boolean isUserBusy(String username) {
         return clients.containsKey(username);
-    }
-
-    public synchronized void sendBroadcastMessage(String message) {
-        for (ClientHandler clientHandler : clients.values()) {
-            clientHandler.sendMessage(message);
-        }
     }
 
     public synchronized void unsubscribe(ClientHandler clientHandler) {

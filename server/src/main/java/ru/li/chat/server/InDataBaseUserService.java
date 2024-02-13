@@ -33,7 +33,6 @@ public class InDataBaseUserService implements UserService {
             return "User{" +
                     ", username='" + username + '\'' +
                     ", login='" + login + '\'' +
-                    ", password='" + password + '\'' +
                     ", roles=" + roles +
                     '}';
         }
@@ -150,11 +149,21 @@ public class InDataBaseUserService implements UserService {
 
     @Override
     public boolean isUsernameAlreadyExists(String username) {
+        for (User user : users) {
+            if (user.username.equals(username)) {
+                return true;
+            }
+        }
         return false;
     }
 
     @Override
     public boolean isLoginAlreadyExists(String login) {
+        for (User user : users) {
+            if (user.login.equals(login)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -284,7 +293,13 @@ public class InDataBaseUserService implements UserService {
 
     @Override
     public void addRoleToUser(String username, UserRole role) {
-
+        User user = getUserByUsername(username);
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
+            insertIntoUserToRole(user.login, role, connection);
+        } catch (SQLException e) {
+            logger.error(e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -332,6 +347,15 @@ public class InDataBaseUserService implements UserService {
             logger.error(e.getMessage());
             throw new SQLException(e);
         }
+    }
+
+    private User getUserByUsername(String username) {
+        for (User user : users) {
+            if (user.username.equals(username)) {
+                return user;
+            }
+        }
+        return null;
     }
 
     private byte[] getSalt() {

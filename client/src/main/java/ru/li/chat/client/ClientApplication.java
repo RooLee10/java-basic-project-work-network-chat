@@ -23,12 +23,12 @@ public class ClientApplication {
             while (true) {
                 String message = scanner.nextLine();
                 message = message.trim();
-                if (message.isEmpty()) {
-                    continue;
-                }
                 if (!network.isConnected()) {
                     network.getOnMessageReceived().callback(getLocalDataString() + " [СЕРВЕР] Вы не подключены к чату");
                     break;
+                }
+                if (message.isEmpty()) {
+                    continue;
                 }
                 if (message.startsWith("/register ")) {
                     String[] elements = message.split(" ");

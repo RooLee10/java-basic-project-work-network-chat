@@ -12,8 +12,6 @@ import java.util.Base64;
 import java.util.Scanner;
 
 public class ClientApplication {
-    private static LocalDateTime localDateTime = LocalDateTime.now(); // Время клиента, так как сервер может быть в другом часовом поясе
-    private static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -24,7 +22,7 @@ public class ClientApplication {
                 String message = scanner.nextLine();
                 message = message.trim();
                 if (!network.isConnected()) {
-                    network.getOnMessageReceived().callback(getLocalDataString() + " [СЕРВЕР] Вы не подключены к чату");
+                    network.getOnMessageReceived().callback(String.format("%s %s Вы не подключены к чату", localTime(), serverPrefix()));
                     break;
                 }
                 if (message.isEmpty()) {
@@ -33,7 +31,7 @@ public class ClientApplication {
                 if (message.startsWith("/register ")) {
                     String[] elements = message.split(" ");
                     if (elements.length != 4) {
-                        network.getOnMessageReceived().callback(getLocalDataString() + " [СЕРВЕР] неверный формат команды");
+                        network.getOnMessageReceived().callback(String.format("%s %s неверный формат команды", localTime(), serverPrefix()));
                         continue;
                     }
                     elements[3] = changePasswordToHashWithFixedSalt(elements[3]);
@@ -42,19 +40,19 @@ public class ClientApplication {
                 if (message.startsWith("/auth ")) {
                     String[] elements = message.split(" ");
                     if (elements.length != 3) {
-                        network.getOnMessageReceived().callback(getLocalDataString() + " [СЕРВЕР] неверный формат команды");
+                        network.getOnMessageReceived().callback(String.format("%s %s неверный формат команды", localTime(), serverPrefix()));
                         continue;
                     }
                     elements[2] = changePasswordToHashWithFixedSalt(elements[2]);
                     message = String.join(" ", elements);
                 }
                 network.send(message);
-                if (message.equals("/exit")) {
+                if (message.equals("/exit") || message.equals("/disconnect")) {
                     break;
                 }
             }
             while (network.isConnected()) {
-                // Ожидаем получения "/exit" в другом потоке и завершаем программу
+                // Ожидаем получения "/exit" или "/disconnect" в другом потоке и завершаем программу
                 Thread.sleep(100);
             }
         } catch (IOException | InterruptedException | NoSuchAlgorithmException | InvalidKeySpecException e) {
@@ -62,8 +60,14 @@ public class ClientApplication {
         }
     }
 
-    private static String getLocalDataString() {
-        return "[" + localDateTime.format(formatter) + "]";
+    private static String localTime() {
+        LocalDateTime localDateTime = LocalDateTime.now(); // Время клиента, так как сервер может быть в другом часовом поясе
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return String.format("[%s]", localDateTime.format(formatter));
+    }
+
+    private static String serverPrefix() {
+        return "[СЕРВЕР]";
     }
 
     private static String changePasswordToHashWithFixedSalt(String password) throws NoSuchAlgorithmException, InvalidKeySpecException {

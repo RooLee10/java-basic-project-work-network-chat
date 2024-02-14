@@ -10,14 +10,16 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
 import java.sql.*;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 public class InDataBaseUserService implements UserService {
-    class User {
+    static class User {
         private String username;
-        private String login;
-        private String password;
-        private String salt;
+        private final String login;
+        private final String password;
+        private final String salt;
+        private OffsetDateTime banTime;
         private Set<UserRole> roles;
 
         public User(String username, String login, String password, String salt, Set<UserRole> roles) {
@@ -28,28 +30,30 @@ public class InDataBaseUserService implements UserService {
             this.roles = roles;
         }
 
+        public User(String username, String login, String password, String salt, OffsetDateTime banTime, Set<UserRole> roles) {
+            this.username = username;
+            this.login = login;
+            this.password = password;
+            this.salt = salt;
+            this.banTime = banTime;
+            this.roles = roles;
+        }
+
         @Override
         public String toString() {
             return "User{" +
                     ", username='" + username + '\'' +
                     ", login='" + login + '\'' +
+                    ", banTime='" + banTime + '\'' +
                     ", roles=" + roles +
                     '}';
-        }
-
-        public synchronized void addRole(UserRole role) {
-            roles.add(role);
-        }
-
-        public synchronized void removeRole(UserRole role) {
-            roles.remove(role);
         }
     }
 
     private static final String DATABASE_URL = "jdbc:postgresql://localhost:5432/UserService";
     private static final String LOGIN = "postgres";
     private static final String PASSWORD = "123456";
-    private List<User> users;
+    private final List<User> users;
     private final Logger logger = LogManager.getLogger(InDataBaseUserService.class.getName());
 
     public InDataBaseUserService() {
@@ -78,10 +82,10 @@ public class InDataBaseUserService implements UserService {
     }
 
     private void executeQueryForGetUsersFromDatabase(Statement statement) throws SQLException {
-        String sqlQuery = "SELECT u.user_id, u.user_name, u.login, u.password, u.salt, r.role_name FROM UserToRole utr JOIN Users u ON utr.user_id = u.user_id JOIN Roles r ON utr.role_id = r.role_id";
+        String sqlQuery = "SELECT u.user_id, u.user_name, u.login, u.password, u.salt, u.ban_time, r.role_name FROM UserToRole utr JOIN Users u ON utr.user_id = u.user_id JOIN Roles r ON utr.role_id = r.role_id";
         logger.debug("executeQueryForGetUsersFromDatabase - получение результата запроса: " + sqlQuery);
         try (ResultSet resultSet = statement.executeQuery(sqlQuery)) {
-            Map<Integer, Map<String, String>> idToUsersData = new HashMap<>(); // Для сохранения данных о пользователях
+            Map<Integer, User> idToUsersData = new HashMap<>(); // Для сохранения данных о пользователях
             Map<Integer, Set<UserRole>> idToRole = new HashMap<>(); // Для сохранения ролей пользователей
             while (resultSet.next()) {
                 int userId = resultSet.getInt(1);
@@ -89,15 +93,11 @@ public class InDataBaseUserService implements UserService {
                 String login = resultSet.getString(3);
                 String password = resultSet.getString(4);
                 String salt = resultSet.getString(5);
-                String roleName = resultSet.getString(6);
+                OffsetDateTime banTime = resultSet.getObject(6, OffsetDateTime.class);
+                String roleName = resultSet.getString(7);
                 // Данные о пользователях
                 if (!idToUsersData.containsKey(userId)) {
-                    Map<String, String> userData = new HashMap<>();
-                    userData.put("userName", userName);
-                    userData.put("login", login);
-                    userData.put("password", password);
-                    userData.put("salt", salt);
-                    idToUsersData.put(userId, userData);
+                    idToUsersData.put(userId, new User(userName, login, password, salt, banTime, new HashSet<>()));
                 }
                 // Данные о ролях
                 if (idToRole.containsKey(userId)) {
@@ -111,13 +111,13 @@ public class InDataBaseUserService implements UserService {
             }
             // Обработаем случай первого запуска, если ещё нет пользователей, то создадим admin/admin
             if (idToUsersData.isEmpty()) {
-                createNewUser("admin", "admin", changePasswordToHashWithFixedSalt("admin"), UserRole.ADMIN);
+                createNewUser("admin", "admin", getDefaultPasswordForAdmin(), UserRole.ADMIN);
                 executeQueryForGetUsersFromDatabase(statement); // рекурсивно вызовем для получения данных
             }
             // Обходим сохраненные данные и создаем пользователей
             for (int userId : idToUsersData.keySet()) {
-                Map<String, String> userData = idToUsersData.get(userId);
-                User user = new User(userData.get("userName"), userData.get("login"), userData.get("password"), userData.get("salt"), idToRole.getOrDefault(userId, new HashSet<>()));
+                User user = idToUsersData.get(userId);
+                user.roles = idToRole.getOrDefault(userId, new HashSet<>());
                 this.users.add(user);
                 logger.debug("executeQueryForGetUsersFromDatabase - создался пользователь: " + user);
             }
@@ -148,7 +148,19 @@ public class InDataBaseUserService implements UserService {
     }
 
     @Override
-    public boolean isUsernameAlreadyExists(String username) {
+    public String getUserRolesByUsername(String username) {
+        User user = getUserByUsername(username);
+        return Arrays.toString(user.roles.toArray());
+    }
+
+    @Override
+    public OffsetDateTime getUserBanTime(String username) {
+        User user = getUserByUsername(username);
+        return user.banTime;
+    }
+
+    @Override
+    public boolean isUsernameExists(String username) {
         for (User user : users) {
             if (user.username.equals(username)) {
                 return true;
@@ -186,7 +198,7 @@ public class InDataBaseUserService implements UserService {
         try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
             connection.setAutoCommit(false);
             insertIntoUsers(username, login, hashedPassword, saltString, connection);
-            insertIntoUserToRole(login, role, connection);
+            insertIntoUserToRole(login, role.toString(), connection);
             connection.setAutoCommit(true);
         } catch (SQLException e) {
             logger.error(e.getMessage());
@@ -197,9 +209,9 @@ public class InDataBaseUserService implements UserService {
         logger.info("Зарегистрирован новый пользователь: " + user);
     }
 
-    private void insertIntoUserToRole(String login, UserRole role, Connection connection) throws SQLException {
+    private void insertIntoUserToRole(String login, String roleName, Connection connection) throws SQLException {
         int userId = getUserIdByLogin(login, connection);
-        int roleId = getRoleIdByRoleName(role.toString(), connection);
+        int roleId = getRoleIdByRoleName(roleName, connection);
         String sqlQuery = "INSERT INTO UserToRole (user_id, role_id) values (?, ?)";
         logger.debug("insertIntoUserToRole - получение preparedStatement по запросу: " + sqlQuery);
         try (PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
@@ -292,19 +304,45 @@ public class InDataBaseUserService implements UserService {
     }
 
     @Override
-    public void addRoleToUser(String username, UserRole role) {
+    public void addRole(String username, String roleName) {
         User user = getUserByUsername(username);
+        logger.debug("addRole - подключение к базе данных");
         try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
-            insertIntoUserToRole(user.login, role, connection);
+            insertIntoUserToRole(user.login, roleName, connection);
         } catch (SQLException e) {
             logger.error(e.getMessage());
             throw new RuntimeException(e);
         }
+        user.roles.add(UserRole.valueOf(roleName));
     }
 
     @Override
-    public void removeRoleFromUser(String username, UserRole role) {
+    public void removeRole(String username, String roleName) {
+        User user = getUserByUsername(username);
+        logger.debug("removeRole - подключение к базе данных");
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
+            deleteFromUserToRole(user.login, roleName, connection);
+        } catch (SQLException e) {
+            logger.error(e.getMessage());
+            throw new RuntimeException(e);
+        }
+        user.roles.remove(UserRole.valueOf(roleName));
+    }
 
+    private void deleteFromUserToRole(String login, String roleName, Connection connection) throws SQLException {
+        int userId = getUserIdByLogin(login, connection);
+        int roleId = getRoleIdByRoleName(roleName, connection);
+        String sqlQuery = "DELETE FROM UserToRole WHERE user_id = ? and role_id = ?";
+        logger.debug("deleteFromUserToRole - получение preparedStatement по запросу: " + sqlQuery);
+        try (PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
+            preparedStatement.setInt(1, userId);
+            preparedStatement.setInt(2, roleId);
+            logger.debug("deleteFromUserToRole - выполнение preparedStatement: " + preparedStatement);
+            preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            logger.error(e.getMessage());
+            throw new SQLException(e);
+        }
     }
 
     @Override
@@ -321,6 +359,53 @@ public class InDataBaseUserService implements UserService {
         }
         changeUsernameInDataBase(currentUser.login, newUsername);
         currentUser.username = newUsername;
+        return true;
+    }
+
+    @Override
+    public void banUser(String username, OffsetDateTime banTime) {
+        User user = getUserByUsername(username);
+        logger.debug("banUser - подключение к базе данных");
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL, LOGIN, PASSWORD)) {
+            int userId = getUserIdByLogin(user.login, connection);
+            updateUserBanTime(userId, banTime, connection);
+        } catch (SQLException e) {
+            logger.error(e.getMessage());
+            throw new RuntimeException(e);
+        }
+        user.banTime = banTime;
+    }
+
+    private void updateUserBanTime(int userId, OffsetDateTime banTime, Connection connection) throws SQLException {
+        String sqlQuery = "UPDATE Users SET ban_time = ? WHERE user_id = ?";
+        logger.debug("updateUserBanTime - получение preparedStatement по запросу: " + sqlQuery);
+        try (PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
+            preparedStatement.setObject(1, banTime);
+            preparedStatement.setInt(2, userId);
+            logger.debug("updateUserBanTime - выполнение preparedStatement: " + preparedStatement);
+            preparedStatement.executeUpdate();
+        }
+    }
+
+    @Override
+    public boolean isUserHasRole(String username, String roleName) {
+        User user = getUserByUsername(username);
+        return user.roles.contains(UserRole.valueOf(roleName));
+    }
+
+    @Override
+    public boolean isUserHasOneRole(String username) {
+        User user = getUserByUsername(username);
+        return user.roles.size() == 1;
+    }
+
+    @Override
+    public boolean isUserLastAdmin(String username) {
+        for (User user : users) {
+            if (user.roles.contains(UserRole.ADMIN) && !user.username.equals(username)) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -350,12 +435,18 @@ public class InDataBaseUserService implements UserService {
     }
 
     private User getUserByUsername(String username) {
+        User result = null;
         for (User user : users) {
             if (user.username.equals(username)) {
-                return user;
+                result = user;
+                break;
             }
         }
-        return null;
+        if (result == null) {
+            logger.error("Не найден пользователь по имени: " + username);
+            throw new RuntimeException("Не найден пользователь по имени: " + username);
+        }
+        return result;
     }
 
     private byte[] getSalt() {
@@ -365,11 +456,11 @@ public class InDataBaseUserService implements UserService {
         return salt;
     }
 
-    private String changePasswordToHashWithFixedSalt(String password) {
+    private String getDefaultPasswordForAdmin() {
         // Нужна только для создания первого пользователя admin/admin
         // Чтобы пользователь потом мог войти, так как с клиента летит хешированный (этой же солью) пароль
         byte[] fixedSalt = "My unique fixed salt".getBytes();
-        byte[] hash = getHash(password, fixedSalt);
+        byte[] hash = getHash("admin", fixedSalt);
         return encodeToString(hash);
     }
 

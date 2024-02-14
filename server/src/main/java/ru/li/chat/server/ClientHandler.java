@@ -9,11 +9,11 @@ import java.io.IOException;
 import java.net.Socket;
 
 public class ClientHandler {
-    private Server server;
-    private Socket socket;
-    private DataInputStream in;
-    private DataOutputStream out;
     private String username;
+    private final Server server;
+    private final Socket socket;
+    private final DataInputStream in;
+    private final DataOutputStream out;
     private final Logger logger;
 
     public String getUsername() {
@@ -24,15 +24,15 @@ public class ClientHandler {
         this.username = username;
     }
 
-    public ClientHandler(Socket socket, Server server) {
+    public ClientHandler(Socket socket, Server server) throws IOException {
         this.logger = LogManager.getLogger(ClientHandler.class.getName());
+        this.socket = socket;
+        this.in = new DataInputStream(socket.getInputStream());
+        this.out = new DataOutputStream(socket.getOutputStream());
+        this.server = server;
 
         new Thread(() -> {
             try {
-                this.socket = socket;
-                this.in = new DataInputStream(socket.getInputStream());
-                this.out = new DataOutputStream(socket.getOutputStream());
-                this.server = server;
                 startLogic();
                 mainLogic();
             } catch (IOException e) {
@@ -42,15 +42,17 @@ public class ClientHandler {
                 server.unsubscribe(this);
             }
         }).start();
+
+        logger.info(String.format("Подключился клиент: %s:%d", socket.getInetAddress(), socket.getPort()));
     }
 
     @Override
     public String toString() {
-        return "Клиент " + socket.getInetAddress() + ":" + socket.getPort() + " (" + username + ")";
+        return String.format("Клиент %s:%s (%s)", socket.getInetAddress(), socket.getPort(), username);
     }
 
     private void startLogic() throws IOException {
-        sendMessage("[СЕРВЕР] " + server.getHelperStart());
+        sendMessage(String.format("%s %s", serverPrefix(), server.getHelperStart()));
         while (true) {
             String message = in.readUTF();
             logger.info(this + " -> " + message);
@@ -59,9 +61,12 @@ public class ClientHandler {
                 successfully = server.tryToRegister(message, this);
             } else if (message.startsWith("/auth ")) {
                 successfully = server.tryToAuthenticate(message, this);
+            } else if (message.equals("/exit")) {
+                sendMessage("/disconnect");
+                disconnect();
             } else {
-                logger.warn("Неизвестная команда: " + message);
-                sendMessage("[СЕРВЕР] неизвестная команда");
+                logger.warn(String.format("Неизвестная команда: %s", message));
+                sendMessage(String.format("%s неизвестная команда", serverPrefix()));
             }
             if (successfully) {
                 break;
@@ -90,29 +95,38 @@ public class ClientHandler {
                     server.changeUsername(message, this);
                     continue;
                 }
+                if (message.startsWith("/userroles ")) {
+                    server.sendUserRoles(message, this);
+                    continue;
+                }
                 if (message.equals("/roleslist")) {
-                    sendMessage("[СЕРВЕР] " + server.getRolesList());
+                    server.sendRolesList(this);
                     continue;
                 }
                 if (message.startsWith("/addrole ")) {
                     server.addRoleToUser(message, this);
                     continue;
                 }
+                if (message.startsWith("/removerole ")) {
+                    server.removeRoleFromUser(message, this);
+                    continue;
+                }
+                if (message.startsWith("/ban ")) {
+                    server.banUser(message, this);
+                    continue;
+                }
                 if (message.equals("/exit")) {
                     sendMessage(message);
-                    break;
+                    disconnect();
                 }
                 if (message.equals("/shutdown")) {
-                    if (!server.isUserAdmin(username)) {
-                        logger.warn(this + " превышение полномочий");
-                        sendMessage("[СЕРВЕР] неизвестная команда");
-                        continue;
-                    }
-                    server.shutdown();
-                    break;
+                    server.shutdown(this);
+                    continue;
                 }
+                sendMessage(String.format("%s неизвестная команда", serverPrefix()));
+            } else {
+                server.sendBroadcastMessage(String.format("%s : %s", username, message));
             }
-            server.sendBroadcastMessage(username + ": " + message);
         }
     }
 
@@ -124,7 +138,12 @@ public class ClientHandler {
         }
     }
 
+    private String serverPrefix() {
+        return server.serverPrefix();
+    }
+
     public void disconnect() {
+        logger.info(String.format("Отключился клиент: %s:%s", socket.getInetAddress(), socket.getPort()));
         try {
             if (in != null) {
                 in.close();

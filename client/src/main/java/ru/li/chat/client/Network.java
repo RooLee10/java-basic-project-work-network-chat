@@ -35,6 +35,11 @@ public class Network implements AutoCloseable {
             try {
                 while (true) {
                     String message = in.readUTF();
+                    if (message.equals("/disconnect")) {
+                        onMessageReceived.callback("Отключились от сервера");
+                        this.connected = false;
+                        break;
+                    }
                     if (message.equals("/exit")) {
                         onMessageReceived.callback("Вы покинули чат");
                         this.connected = false;
@@ -42,7 +47,7 @@ public class Network implements AutoCloseable {
                     }
                     LocalDateTime localDateTime = LocalDateTime.now(); // Время клиента, так как сервер может быть в другом часовом поясе
                     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                    onMessageReceived.callback("[" + localDateTime.format(formatter) + "] " + message);
+                    onMessageReceived.callback(String.format("[%s] %s", localDateTime.format(formatter), message));
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);

@@ -97,7 +97,9 @@ public class InDataBaseUserService implements UserService {
                 String roleName = resultSet.getString(7);
                 // Данные о пользователях
                 if (!idToUsersData.containsKey(userId)) {
-                    idToUsersData.put(userId, new User(userName, login, password, salt, banTime, new HashSet<>()));
+                    User user = new User(userName, login, password, salt, banTime, new HashSet<>());
+                    idToUsersData.put(userId, user);
+                    logger.debug("executeQueryForGetUsersFromDatabase - создался пользователь: " + user);
                 }
                 // Данные о ролях
                 if (idToRole.containsKey(userId)) {
@@ -114,12 +116,12 @@ public class InDataBaseUserService implements UserService {
                 createNewUser("admin", "admin", getDefaultPasswordForAdmin(), UserRole.ADMIN);
                 executeQueryForGetUsersFromDatabase(statement); // рекурсивно вызовем для получения данных
             }
-            // Обходим сохраненные данные и создаем пользователей
+            // Заполним роли
             for (int userId : idToUsersData.keySet()) {
                 User user = idToUsersData.get(userId);
                 user.roles = idToRole.getOrDefault(userId, new HashSet<>());
                 this.users.add(user);
-                logger.debug("executeQueryForGetUsersFromDatabase - создался пользователь: " + user);
+                logger.debug("executeQueryForGetUsersFromDatabase - заполнились роли: " + user);
             }
         } catch (SQLException e) {
             logger.error(e.getMessage());
@@ -148,9 +150,8 @@ public class InDataBaseUserService implements UserService {
     }
 
     @Override
-    public String getUserRolesByUsername(String username) {
-        User user = getUserByUsername(username);
-        return Arrays.toString(user.roles.toArray());
+    public String getUserInfo(String username) {
+        return getUserByUsername(username).toString();
     }
 
     @Override

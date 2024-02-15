@@ -7,6 +7,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.time.OffsetDateTime;
 
 public class ClientHandler {
     private String username;
@@ -15,6 +16,7 @@ public class ClientHandler {
     private final DataInputStream in;
     private final DataOutputStream out;
     private final Logger logger;
+    private OffsetDateTime lastActivity;
 
     public String getUsername() {
         return username;
@@ -24,12 +26,17 @@ public class ClientHandler {
         this.username = username;
     }
 
+    public OffsetDateTime getLastActivity() {
+        return lastActivity;
+    }
+
     public ClientHandler(Socket socket, Server server) throws IOException {
         this.logger = LogManager.getLogger(ClientHandler.class.getName());
         this.socket = socket;
         this.in = new DataInputStream(socket.getInputStream());
         this.out = new DataOutputStream(socket.getOutputStream());
         this.server = server;
+        this.lastActivity = OffsetDateTime.now();
 
         new Thread(() -> {
             try {
@@ -55,6 +62,7 @@ public class ClientHandler {
         sendMessage(String.format("%s %s", serverPrefix(), server.getHelperStart()));
         while (true) {
             String message = in.readUTF();
+            setLastActivity();
             logger.info(this + " -> " + message);
             boolean successfully = false;
             if (message.startsWith("/register ")) {
@@ -77,6 +85,7 @@ public class ClientHandler {
     private void mainLogic() throws IOException {
         while (true) {
             String message = in.readUTF();
+            setLastActivity();
             if (message.startsWith("/")) {
                 logger.info(this + " -> " + message);
                 if (message.equals("/?")) {
@@ -95,8 +104,8 @@ public class ClientHandler {
                     server.changeUsername(message, this);
                     continue;
                 }
-                if (message.startsWith("/userroles ")) {
-                    server.sendUserRoles(message, this);
+                if (message.startsWith("/userinfo ")) {
+                    server.sendUserInfo(message, this);
                     continue;
                 }
                 if (message.equals("/roleslist")) {
@@ -118,6 +127,7 @@ public class ClientHandler {
                 if (message.equals("/exit")) {
                     sendMessage(message);
                     disconnect();
+                    break;
                 }
                 if (message.equals("/shutdown")) {
                     server.shutdown(this);
@@ -136,6 +146,10 @@ public class ClientHandler {
         } catch (IOException e) {
             logger.warn(e.getMessage());
         }
+    }
+
+    private void setLastActivity() {
+        this.lastActivity = OffsetDateTime.now();
     }
 
     private String serverPrefix() {

@@ -5,7 +5,7 @@ import java.time.OffsetDateTime;
 public interface UserService {
     String getUsernameByLoginAndPassword(String login, String password);
 
-    String getUserRolesByUsername(String username);
+    String getUserInfo(String username);
 
     OffsetDateTime getUserBanTime(String username);
 

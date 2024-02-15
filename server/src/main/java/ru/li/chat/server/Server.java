@@ -13,6 +13,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Server {
     private ServerSocket serverSocket;
@@ -46,6 +49,7 @@ public class Server {
             serverSocket = new ServerSocket(port);
             running = true;
             logger.info(String.format("Запущен сервер на порту: %d", port));
+            runTaskToCheckLatestActivity();
             while (running) {
                 Socket clientSocket = serverSocket.accept();
                 new ClientHandler(clientSocket, this);
@@ -59,6 +63,21 @@ public class Server {
         } finally {
             disconnect();
         }
+    }
+
+    private void runTaskToCheckLatestActivity() {
+        ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+        executorService.scheduleWithFixedDelay(() -> {
+            for (ClientHandler clientHandler : clients.values()) {
+                if (clientHandler.getLastActivity().plusMinutes(20).isBefore(OffsetDateTime.now())) {
+                    logger.info(String.format("%s отключен от чата за не активность.", clientHandler));
+                    clientHandler.sendMessage(String.format("%s вы были отключены от чата. Будьте активнее!", serverPrefix()));
+                    clientHandler.sendMessage("/exit");
+                    clientHandler.disconnect();
+                }
+            }
+        }, 0, 1, TimeUnit.MINUTES);
+        logger.info(String.format("Запущен поток на отслеживание активности %s", executorService));
     }
 
     public synchronized boolean tryToRegister(String message, ClientHandler clientHandler) {
@@ -187,7 +206,7 @@ public class Server {
         }
     }
 
-    public synchronized void sendUserRoles(String message, ClientHandler clientHandler) {
+    public synchronized void sendUserInfo(String message, ClientHandler clientHandler) {
         if (commandNotAvailable("при получении списка ролей пользователя", clientHandler)) {
             return;
         }
@@ -203,7 +222,13 @@ public class Server {
             clientHandler.sendMessage(String.format("%s не найден пользователь: %s", serverPrefix(), clientHandler));
             return;
         }
-        clientHandler.sendMessage(String.format("%s ", userService.getUserRolesByUsername(username)));
+        String userInfo = userService.getUserInfo(username);
+        String lastActivity = "не в сети";
+        if (clients.get(username) != null) {
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm:ss Z");
+            lastActivity = clients.get(username).getLastActivity().format(formatter);
+        }
+        clientHandler.sendMessage(String.format("%s lastActivity: %s", userInfo, lastActivity));
     }
 
     private boolean commandNotAvailable(String event, ClientHandler clientHandler) {

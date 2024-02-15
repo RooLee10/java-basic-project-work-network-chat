@@ -1,4 +1,4 @@
-/userroles - список ролей пользователя (/userroles username)
+/userinfo - информация о пользователе (/userinfo username)
 /roleslist - список ролей для установки/удаления пользователям
 /addrole - добавить роль пользователю (/addrole username rolename)
 /removerole - удалить роль у пользователя (/removerole username rolename)
